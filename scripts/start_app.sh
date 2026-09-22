@@ -1,28 +1,17 @@
-#!/bin/bash
-# start_app.sh - Arrancar contenedores Docker
+#!/usr/bin/env bash
+set -euo pipefail
 
-#!/bin/bash
+echo "[AEROOPS] Starting public reservation tier..."
 
-echo "[AEROMEXICO] Levantando servicios públicos..."
+if [ ! -f .env ]; then
+  echo "Missing .env. Copy .env.example to .env and set MONGO_URI first."
+  exit 1
+fi
 
-docker stop publico-vuelos-frontend publico-vuelos-backend 2>/dev/null || true
-docker rm publico-vuelos-frontend publico-vuelos-backend 2>/dev/null || true
+docker compose up -d --build
 
-docker network create aeromexico-network 2>/dev/null || true
-
-docker run -d \
-  --name publico-vuelos-backend \
-  --network aeromexico-network \
-  -p 3000:3000 \
-  -v public-profinaldevops_public_logs:/app/logs \
-  public-profinaldevops-backend
-
-docker run -d \
-  --name publico-vuelos-frontend \
-  --network aeromexico-network \
-  -p 8080:80 \
-  public-profinaldevops-frontend
-
-echo "------------------------------------------------"
-docker ps
-echo "------------------------------------------------"
+echo
+echo "Public services:"
+docker compose ps
+echo
+echo "Frontend: http://localhost:${PUBLIC_PORT:-8080}"
