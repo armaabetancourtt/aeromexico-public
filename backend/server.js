@@ -8,7 +8,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/vuelos';
 
-app.use(cors());
+if (process.env.CORS_ORIGIN) {\n  app.use(cors({ origin: process.env.CORS_ORIGIN }));\n}
 app.use(express.json());
 
 app.use((req, res, next) => {
