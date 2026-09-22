@@ -1,242 +1,151 @@
-# Proyecto Final DevOps: AeroMéxico – Sistema de Reservas de Vuelos
+# AeroOps AWS — Public Flight Reservation Service
 
-Sistema full stack de reservas de vuelos desarrollado con prácticas DevOps: Docker, AWS CloudFormation, Bash y GitHub.
+[English](README.md) · [Español](README.es.md)
 
----
+> Internet-facing half of a two-tier AWS flight-reservation simulation, designed to separate customer traffic from an internal operations and data plane.
 
-## Descripción
+![Node.js](https://img.shields.io/badge/Node.js-Express-339933?logo=node.js&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-EC2%20%7C%20CloudWatch%20%7C%20S3-FF9900?logo=amazonaws&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-6-47A248?logo=mongodb&logoColor=white)
 
-Aeroméxico es una web application que permite:
-- Buscar vuelos por origen, destino y fecha
-- Ver precios dinámicos en tiempo real
-- Realizar reservas de vuelos
-- Consultar historial de reservas
+> **Portfolio project / educational simulation.** This project is not affiliated with, endorsed by, or operated by Aeroméxico.
 
----
+## Why this project matters
 
-## Arquitectura
+The interesting part is not the airline UI. The goal was to model a small production-style system in AWS with a clear trust boundary:
 
+- expose only the customer-facing web tier to Internet traffic;
+- keep the database and administration services on the internal side;
+- containerize the application for repeatable deployment;
+- centralize logs for CloudWatch-oriented observability;
+- automate startup, shutdown, log inspection, and S3 backup workflows.
+
+The companion repository, **[AeroOps AWS — Internal Operations & Data Plane](https://github.com/armaabetancourtt/priv-profinaldevops)**, contains the internal administration service and MongoDB data plane.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Customer / Browser] -->|HTTP| FE[Public Nginx Frontend]
+    FE -->|/api/*| API[Node.js / Express API]
+    API -->|Private network| DB[(MongoDB Data Plane)]
+
+    OPS[Internal Operations Plane] --> DB
+
+    API --> LOGS[Application Logs]
+    LOGS --> CW[Amazon CloudWatch]
+    CW --> MF[Metric Filters / Alerts]
+    MF --> L[Lambda response path]
+
+    LOGS --> B[Backup Workflow]
+    DB --> B
+    B --> S3[Amazon S3]
 ```
-Usuario → Navegador (Puerto 8080)
-               ↓
-          Frontend (nginx)
-               ↓  /api/*
-          Backend (Express :3000)
-               ↓
-          MongoDB (:27017)
-```
 
-**Docker Compose levanta 3 contenedores:**
-| Contenedor       | Tecnología     | Puerto interno |
-|------------------|----------------|---------------|
-| vuelos-frontend  | nginx + HTML/Vue CDN | 80 → host:8080 |
-| vuelos-backend   | Node.js + Express | 3000 (interno) |
-| vuelos-mongodb   | MongoDB 6      | 27017 (interno) |
+### Repository split
 
----
+| Repository | Responsibility | Exposure |
+|---|---|---|
+| **This repository** | Customer-facing flight search, pricing simulation, booking API and public web UI | Internet-facing frontend |
+| [`priv-profinaldevops`](https://github.com/armaabetancourtt/priv-profinaldevops) | Admin dashboard, JWT-protected operations API, MongoDB and operational analytics | Internal / restricted |
 
-## Tecnologías
+A deeper architecture walkthrough is available in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-- **Frontend:** HTML5, CSS3, JavaScript, Vue.js 3 (CDN), nginx
-- **Backend:** Node.js, Express, Winston (logs)
-- **Base de datos:** MongoDB 6
-- **Contenerización:** Docker, Docker Compose
-- **Infraestructura:** AWS CloudFormation (EC2 + S3)
-- **Automatización:** Bash scripts
+## What I built
 
----
+### Customer experience
+- Search flights by origin, destination and date.
+- Generate a realistic set of flight options from persisted route data.
+- Simulate demand-sensitive pricing and seat availability.
+- Create and persist reservations in MongoDB.
+- Expose a health endpoint for operational checks.
 
-## Ejecución Local (Docker)
+### Platform / DevOps
+- Nginx frontend acting as the only public application entry point.
+- Express backend isolated inside the Docker network.
+- Docker Compose for repeatable service orchestration.
+- Winston application logs persisted in a Docker volume.
+- Bash workflows for deployment, lifecycle management, log inspection and backups.
+- AWS-oriented monitoring and backup flow using CloudWatch and S3.
+- Configuration injected through environment variables instead of repository secrets.
 
-### Prerrequisitos
-- Docker instalado
-- Docker Compose disponible
+## Technology
 
-### Pasos
+| Layer | Stack |
+|---|---|
+| Frontend | HTML5, CSS3, JavaScript, Vue 3 (CDN), Nginx |
+| API | Node.js, Express |
+| Data | MongoDB 6 / Mongoose |
+| Containers | Docker, Docker Compose |
+| Observability | Winston, Amazon CloudWatch |
+| Cloud operations | AWS EC2, VPC networking, S3, Lambda-oriented alert response |
+| Automation | Bash |
+
+## Run locally
+
+This public tier expects a reachable MongoDB instance. For the full two-repository topology, run the internal data-plane repository first.
 
 ```bash
-# 1. Clonar el repositorio
-git clone <URL_DEL_REPO>
-cd project
+git clone https://github.com/armaabetancourtt/public-profinaldevops.git
+cd public-profinaldevops
 
-# 2. Dar permisos a los scripts
-chmod +x start.sh stop.sh backup.sh
+cp .env.example .env
+# Set MONGO_URI to your MongoDB endpoint.
 
-# 3. Levantar la aplicación
-./start.sh
-
-# 4. Acceder en el navegador
-open http://localhost:8080
+docker compose up -d --build
 ```
 
-### O manualmente con Docker Compose:
+Open:
+
+```text
+http://localhost:8080
+```
+
+Only Nginx is published to the host. The Express API remains inside the Compose network and is reached through Nginx at `/api/*`.
+
+## API surface
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/flights` | Search generated flight options |
+| `POST` | `/api/book` | Create a reservation |
+| `GET` | `/api/bookings` | Retrieve recent reservations |
+| `GET` | `/api/routes` | List stored routes |
+| `POST` | `/api/routes` | Create a route |
+| `GET` | `/api/health` | Service health check |
+
+## Operational commands
 
 ```bash
-# Construir y levantar
-docker-compose up -d --build
-
-# Ver logs
-docker-compose logs -f
-
-# Detener
-docker-compose down
+./scripts/start_app.sh
+./scripts/view_logs.sh
+./scripts/backup.sh
+./scripts/backup.sh --s3 <bucket-name>
+./scripts/stop_app.sh
 ```
 
----
+The public-tier backup script archives application logs. Database backups belong to the internal data-plane repository, where MongoDB actually runs.
 
-## Despliegue en EC2 (AWS)
+## Design decisions
 
-### 1. Crear infraestructura con CloudFormation
+**One public ingress.** Nginx proxies `/api/*` to the backend, so the application does not need to publish the API container directly.
 
-```bash
-aws cloudformation create-stack \
-  --stack-name aeromex-stack \
-  --template-body file://cloudformation/aeromexico-stack.yaml \
-  --parameters \
-    ParameterKey=KeyPairName,ParameterValue=mi-key-pair \
-    ParameterKey=BucketName,ParameterValue=mi-bucket-aeromex-unico
-```
+**Configuration outside source control.** Infrastructure-specific values such as the MongoDB endpoint are supplied through `.env`, making the repository portable and avoiding hard-coded private IPs.
 
-### 2. Conectarse a la instancia EC2
+**Separate operational concerns.** Public booking traffic and internal administration live in different repositories and service boundaries rather than in one monolithic deployment.
 
-```bash
-ssh -i vockey.pem ec2-user@<IP_PUBLICA_EC2>
-```
+**Observability as part of the design.** Logs are persistent and intentionally structured for host/cloud collection rather than treated as an afterthought.
 
-### 3. Instalar dependencias en EC2
+## Security notes
 
-```bash
-# Git (si no está instalado por UserData)
-sudo yum install -y git
+- No AWS credentials, database credentials, personal contact information, or private keys belong in this repository.
+- `.env`, local backups and logs are ignored by Git.
+- CORS is disabled by default for cross-origin traffic; set `CORS_ORIGIN` only when an external origin is intentionally required.
+- The project uses fictional/demo reservation data only.
 
-# Docker
-sudo amazon-linux-extras install docker -y
-sudo service docker start
-sudo usermod -aG docker ec2-user
-# Reconectar SSH para aplicar cambios de grupo
+See [SECURITY.md](SECURITY.md) for the repository security model.
 
-# Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-```
+## Project status
 
-### 4. Desplegar la aplicación
-
-```bash
-# Clonar repo
-git clone <URL_DEL_REPO>
-cd project
-
-# Dar permisos y ejecutar
-chmod +x start.sh
-./start.sh
-
-# La app estará disponible en:
-# http://<IP_PUBLICA_EC2>:8080
-```
-
----
-
-## Estructura del Proyecto
-
-```
-project/
-├── backend/
-│   ├── server.js          # API REST (Express)
-│   ├── logger.js          # Configuración de logs (Winston)
-│   ├── package.json
-│   ├── .env
-│   └── Dockerfile
-├── frontend/
-│   ├── index.html         # SPA con Vue.js CDN
-│   ├── nginx.conf         # Proxy al backend
-│   └── Dockerfile
-├── cloudformation/
-│   └── template.yaml      # EC2 + S3
-├── docker-compose.yml
-├── start.sh               # Levanta todo
-├── stop.sh                # Detiene todo
-├── backup.sh              # Backup DB + logs
-└── README.md
-```
-
----
-
-## Puertos
-
-| Servicio  | Puerto | Descripción              |
-|-----------|--------|--------------------------|
-| Frontend  | 8080   | Acceso desde el navegador |
-| Backend   | 3000   | API REST (interno Docker) |
-| MongoDB   | 27017  | Base de datos (interno)   |
-
----
-
-## Endpoints de la API
-
-| Método | Endpoint     | Descripción                        |
-|--------|-------------|-------------------------------------|
-| GET    | /flights    | Buscar vuelos (query: origin, destination, date) |
-| POST   | /book       | Crear una reserva                   |
-| GET    | /bookings   | Listar todas las reservas           |
-| GET    | /health     | Estado del servidor                 |
-
----
-
-## Scripts Bash
-
-```bash
-./start.sh [URL_REPO]   # Construye y levanta contenedores
-./stop.sh               # Detiene y elimina contenedores
-./backup.sh             # Backup local de DB y logs
-./backup.sh --s3 <bucket>  # Backup + upload a S3
-```
-
-### Automatizar backup con cron
-
-```bash
-# Abrir crontab
-crontab -e
-
-# Backup todos los días a las 2:00 AM
-0 2 * * * /home/ec2-user/project/backup.sh >> /var/log/aeromex-backup.log 2>&1
-
-# Backup cada 6 horas con subida a S3
-0 */6 * * * /home/ec2-user/project/backup.sh --s3 mi-bucket >> /var/log/aeromex-backup.log 2>&1
-```
-
----
-
-## Logs
-
-Los logs se generan en `/app/logs/app.log` dentro del contenedor backend.
-
-Formato:
-```
-[2026-04-09 10:00:00] INFO: Servidor iniciado en puerto 3000
-[2026-04-09 10:01:15] INFO: GET /flights - IP: 172.18.0.1
-[2026-04-09 10:02:00] INFO: Búsqueda de vuelos: Ciudad de México → Cancún
-[2026-04-09 10:02:00] INFO: Se encontraron 9 vuelos
-[2026-04-09 10:05:30] INFO: Reserva creada: 663a1f... | Vuelo: FL001 | Pasajero: Juan García
-```
-
-Ver logs en tiempo real:
-```bash
-docker-compose logs -f backend
-```
-
----
-
-## Uso de S3
-
-El bucket S3 creado por CloudFormation se usa para:
-- `backups/mongodb/` → backups de la base de datos
-- `backups/logs/` → archivos de logs comprimidos
-
-```bash
-# Subir backup a S3
-./backup.sh --s3 mi-bucket-aeromex-unico
-
-# Listar backups en S3
-aws s3 ls s3://mi-bucket-aeromex-unico/backups/
-```
+Built as a hands-on cloud/DevOps architecture project to demonstrate application delivery across networking, containers, observability, automation and data persistence — not as a production airline platform.
